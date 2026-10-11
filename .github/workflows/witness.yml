@@ -1,0 +1,35 @@
+name: witness
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Anchor even if heads are unchanged"
+        default: "0"
+permissions:
+  contents: write
+concurrency:
+  group: anchors-log
+  cancel-in-progress: false
+jobs:
+  anchor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Sign and anchor runtime heads (key lives only in this repo's Actions secret)
+        env:
+          WITNESS_ED25519_PKCS8: ${{ secrets.WITNESS_ED25519_PKCS8 }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: node scripts/witness.mjs
+      - name: Commit anchor log (append-only)
+        run: |
+          git config user.name "aziel-anchors-witness"
+          git config user.email "aziel-anchors-witness@users.noreply.github.com"
+          git add anchors
+          git diff --cached --quiet && exit 0
+          git commit -m "anchor: $(tail -1 anchors/log.jsonl | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);console.log("n="+r.statement.n+" "+r.statement_hash.slice(0,16))})')"
+          git pull --rebase origin main && git push origin HEAD:main

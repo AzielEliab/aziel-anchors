@@ -1,0 +1,35 @@
+name: auditor
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_run:
+    workflows: [witness]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: anchors-log
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Re-verify witness log, TSA tokens, Rekor entries and live runtime heads; seal audit receipt
+        env:
+          AUDITOR_ED25519_PKCS8: ${{ secrets.AUDITOR_ED25519_PKCS8 }}
+        run: node scripts/auditor.mjs
+      - name: Commit audit log (append-only)
+        run: |
+          git config user.name "aziel-anchors-auditor"
+          git config user.email "aziel-anchors-auditor@users.noreply.github.com"
+          git add audits
+          git diff --cached --quiet && exit 0
+          git commit -m "audit: $(tail -1 audits/log.jsonl | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);console.log("n="+r.statement.n+" "+r.statement.verdict)})')"
+          git pull --rebase origin main && git push origin HEAD:main
