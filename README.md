@@ -10,3 +10,7 @@ The private keys exist only as this repository's GitHub Actions secrets (`WITNES
 Key history: the first keys (statements 1-2, audits 1-2; see `keys/epochs.json`) were generated on the operator's build machine and retired on 2026-10-11. The current keys were generated inside a GitHub Actions run (`rotate-keys`, run 38108699312) and sealed straight into the Actions secrets; no machine outside GitHub held them in the clear. Honest limits: the repository owner can still rotate secrets or rewrite git history (Rekor and the RFC 3161 tokens are the parts the owner cannot rewrite). GitHub schedules are best-effort (gaps of more than 15 minutes happen).
 
 Verify a statement yourself: recompute `sha256(canonical JSON of statement)`, check the Ed25519 signature with `keys/witness.pub`, then `openssl ts -verify -data <statement bytes> -in anchors/tsr/<n>.tsr -CAfile keys/freetsa-cacert.pem -untrusted keys/freetsa-tsa.crt`.
+
+## External heads (EXTERNAL-HEADS-1.0)
+
+Each new statement also carries `external`: the godlock.uk ledger head (from `https://godlock.uk/verify`) and the Aziel Corpus ACT-RECEIPT tip (from `/v1/receipts`), read directly from those sites, not through the runtime. A head is recorded only when its source verifies it (`status: VERIFIED`, no errors, 64-hex head); otherwise the entry is `{ "anchored": false, "reason": ... }`. An empty corpus chain (all-zero tip) is never anchored. Tests: `node tests/external-heads.test.mjs`.

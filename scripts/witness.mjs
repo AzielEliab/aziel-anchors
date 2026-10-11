@@ -3,6 +3,7 @@
 // gets an RFC 3161 token from freetsa.org and a Sigstore Rekor entry, appends anchors/log.jsonl.
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { readExternalHeads } from "./external-heads.mjs";
 import { RUNTIME, ZERO, canonicalize, sha256, loadKey, sign, readJsonl, getJson, rekorSubmit } from "./lib.mjs";
 
 const LOG = "anchors/log.jsonl";
@@ -23,7 +24,10 @@ for (const name of ["aznews", "4dmap"]) {
     independent[name] = { error: String(err.message).slice(0, 120) };
   }
 }
-const sameHeads = last && canonicalize(last.statement.heads.chains) === canonicalize(heads.chains) && canonicalize(last.statement.heads.stores) === canonicalize(heads.stores);
+// EXTERNAL-HEADS-1.0: godlock.uk ledger head and corpus receipt tip, read from their own endpoints.
+const external = await readExternalHeads();
+const sameHeads = last && canonicalize(last.statement.heads.chains) === canonicalize(heads.chains) && canonicalize(last.statement.heads.stores) === canonicalize(heads.stores) &&
+  canonicalize(headsOnly(last.statement.external)) === canonicalize(headsOnly(external));
 if (sameHeads && process.env.FORCE !== "1") {
   console.log("heads unchanged since statement", last.statement.n, "- nothing to anchor");
   process.exit(0);
@@ -39,6 +43,7 @@ const statement = {
   git_sha: heads.git_sha || null,
   heads: { chains: heads.chains, stores: heads.stores, version: heads.version, git_sha: heads.git_sha, at: heads.at },
   independent,
+  external,
   witness: { repo: "AzielEliab/aziel-anchors", run_id: process.env.GITHUB_RUN_ID || null, key: "keys/witness.pub" },
 };
 const text = canonicalize(statement);
@@ -68,3 +73,9 @@ try {
 const row = { statement, statement_hash, public_key: pub, sig, tsa, rekor };
 fs.appendFileSync(LOG, JSON.stringify(row) + "\n");
 console.log(`anchored n=${statement.n} ${statement_hash} chains=${heads.chains.length} tsa=${Boolean(tsa)} rekor=${rekor ? rekor.log_index : null}`);
+
+function headsOnly(ext) {
+  const o = {};
+  for (const [k, v] of Object.entries(ext || {})) o[k] = v && v.anchored ? v.head : null;
+  return o;
+}
