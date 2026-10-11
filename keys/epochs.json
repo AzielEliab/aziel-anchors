@@ -1,0 +1,5 @@
+{
+  "note": "Append-only. Retired keys, each valid only for statements n in [from_n, through_n]. Rotated 2026-10-11 by rotate-keys run 38108699312 (keys generated inside GitHub Actions).",
+  "witness": [{ "public_key": "tCPVJRmcKKH6LwEdUfcrzoei_dRxkwKl1BouZ4VB0lo", "from_n": 1, "through_n": 2, "retired_at": "2026-10-11" }],
+  "auditor": [{ "public_key": "FkI_irqaJPi1smYK1czR0G8TCGiBmmsMC_Eq2I0V6_g", "from_n": 1, "through_n": 2, "retired_at": "2026-10-11" }]
+}
