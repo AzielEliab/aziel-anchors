@@ -1,0 +1,52 @@
+name: rotate-keys
+# One-shot key rotation (AZRT-ANCHOR-1.0 key epochs). Generates fresh Ed25519 keys INSIDE this
+# runner. The private halves are sealed (libsodium sealed box) to this repo's GitHub Actions
+# secrets public key, so the only thing that leaves the runner is ciphertext only GitHub can open,
+# plus the public keys. The operator then stores the ciphertext with the secrets API (PUT
+# encrypted_value); no machine outside GitHub ever holds a private key in the clear.
+on:
+  workflow_dispatch:
+    inputs:
+      repo_key_id:
+        description: "key_id from GET /repos/AzielEliab/aziel-anchors/actions/secrets/public-key"
+        required: true
+      repo_public_key:
+        description: "key (base64) from the same endpoint"
+        required: true
+permissions:
+  contents: read
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pip install --quiet pynacl==1.5.0 cryptography
+      - name: Generate witness + auditor keys and seal private halves to the repo secrets key
+        env:
+          REPO_PK: ${{ github.event.inputs.repo_public_key }}
+          REPO_KEY_ID: ${{ github.event.inputs.repo_key_id }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, hashlib
+          from nacl import public
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          from cryptography.hazmat.primitives import serialization as s
+          box = public.SealedBox(public.PublicKey(base64.b64decode(os.environ["REPO_PK"])))
+          out = {"key_id": os.environ["REPO_KEY_ID"], "keys": {}}
+          for name in ("WITNESS_ED25519_PKCS8", "AUDITOR_ED25519_PKCS8"):
+              k = Ed25519PrivateKey.generate()
+              der = k.private_bytes(s.Encoding.DER, s.PrivateFormat.PKCS8, s.NoEncryption())
+              raw = k.public_key().public_bytes(s.Encoding.Raw, s.PublicFormat.Raw)
+              out["keys"][name] = {
+                  "public_key": base64.urlsafe_b64encode(raw).decode().rstrip("="),
+                  "public_key_sha256": hashlib.sha256(raw).hexdigest(),
+                  "encrypted_value": base64.b64encode(box.encrypt(base64.b64encode(der))).decode(),
+              }
+              del k, der
+          open("rotation.json", "w").write(json.dumps(out, indent=1))
+          for n, v in out["keys"].items(): print(n, "public", v["public_key"], "sha256", v["public_key_sha256"])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rotation
+          path: rotation.json
+          retention-days: 1
