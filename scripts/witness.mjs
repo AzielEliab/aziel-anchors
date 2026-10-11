@@ -34,6 +34,9 @@ const statement = {
   prev_statement_hash: last ? last.statement_hash : ZERO,
   observed_at: new Date().toISOString(),
   source: `${RUNTIME}/v1/anchor/heads`,
+  // Additive (AZRT-ANCHOR-1.0 key-epoch update): the runtime's live GIT_SHA at the top level.
+  // Statements before this field verify unchanged (canonical JSON of what was signed).
+  git_sha: heads.git_sha || null,
   heads: { chains: heads.chains, stores: heads.stores, version: heads.version, git_sha: heads.git_sha, at: heads.at },
   independent,
   witness: { repo: "AzielEliab/aziel-anchors", run_id: process.env.GITHUB_RUN_ID || null, key: "keys/witness.pub" },

@@ -4,7 +4,7 @@
 // and seals its own chained, signed check receipt in audits/log.jsonl. Never writes the runtime.
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
-import { RUNTIME, ZERO, canonicalize, sha256, loadKey, sign, verify, readJsonl, getJson } from "./lib.mjs";
+import { RUNTIME, ZERO, canonicalize, sha256, loadKey, sign, verify, readJsonl, getJson, keyFor } from "./lib.mjs";
 
 const pinnedWitness = fs.readFileSync("keys/witness.pub", "utf8").trim();
 const pinnedAuditor = fs.readFileSync("keys/auditor.pub", "utf8").trim();
@@ -20,7 +20,8 @@ for (const row of anchors) {
   const n = row.statement.n;
   if (sha256(text) !== row.statement_hash) findings.push({ n, code: "ANCHOR-MISMATCH", what: "statement hash" });
   if (row.statement.prev_statement_hash !== prev) findings.push({ n, code: "ANCHOR-ORDER-BREAK" });
-  if (row.public_key !== pinnedWitness || !verify(pinnedWitness, text, row.sig)) findings.push({ n, code: "ANCHOR-SIG-BAD" });
+  const wk = keyFor("witness", n);
+  if (row.public_key !== wk || !verify(wk, text, row.sig)) findings.push({ n, code: "ANCHOR-SIG-BAD" });
   if (row.tsa && row.tsa.token) {
     try {
       fs.writeFileSync("/tmp/a.txt", text);

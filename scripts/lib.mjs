@@ -70,3 +70,12 @@ export async function rekorSubmit(pem, text, sigB64url) {
   const uuid = Object.keys(j)[0];
   return { uuid, log_index: j[uuid].logIndex, integrated_time: j[uuid].integratedTime, url: `https://search.sigstore.dev/?uuid=${uuid}` };
 }
+
+/** Key epochs: keys/epochs.json lists retired keys with the last n each one signed. Rows after
+ *  every retired epoch must use the current pinned key (keys/<role>.pub). Append-only file. */
+export function keyFor(role, n) {
+  const cur = fs.readFileSync(`keys/${role}.pub`, "utf8").trim();
+  if (!fs.existsSync("keys/epochs.json")) return cur;
+  const ep = (JSON.parse(fs.readFileSync("keys/epochs.json", "utf8"))[role] || []).find((e) => n >= e.from_n && n <= e.through_n);
+  return ep ? ep.public_key : cur;
+}
