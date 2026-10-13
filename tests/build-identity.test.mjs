@@ -1,6 +1,6 @@
 // AZRT-BUILD-WITNESS-1.0 tests: run with `node tests/build-identity.test.mjs`.
 import assert from "node:assert/strict";
-import { buildOf, buildChanged, statementBuild, versionSeenRecently, RECENT_VERSION_WINDOW } from "../scripts/build-identity.mjs";
+import { buildOf, buildChanged, statementBuild, isFlap, FLAP_WINDOW_MS } from "../scripts/build-identity.mjs";
 const SHA = "3221bbe47c04873575957d4f6220133e65039111";
 const VID = "38a05023-5835-4ce0-a203-a53fb11382e6";
 let n = 0;
@@ -14,12 +14,15 @@ assert.equal(buildChanged({ git_sha: SHA, build: { git_sha: SHA, version_id: VID
 assert.equal(buildChanged({ git_sha: "a".repeat(40) }, buildOf({ git_sha: SHA })), true); n++;
 assert.equal(buildChanged({ git_sha: SHA }, buildOf({ build: { git_sha: SHA, version_id: VID } })), true, "first statement with version_id"); n++;
 assert.equal(buildChanged(null, buildOf({ git_sha: SHA })), true); n++;
-const st = (vid) => ({ statement: { git_sha: SHA, build: { git_sha: SHA, version_id: vid } } });
-const logA = [st("a"), st("b"), st("a"), st("b")];
-assert.equal(RECENT_VERSION_WINDOW, 5); n++;
-assert.equal(versionSeenRecently(logA, buildOf({ build: { git_sha: SHA, version_id: "a" } })), true, "alternating rollout: skip"); n++;
-assert.equal(versionSeenRecently(logA, buildOf({ build: { git_sha: SHA, version_id: "c" } })), false, "new version: anchor"); n++;
-const old = [st("old"), st("x"), st("x"), st("x"), st("x"), st("x")];
-assert.equal(versionSeenRecently(old, buildOf({ build: { git_sha: SHA, version_id: "old" } })), false, "outside the window: anchor"); n++;
-assert.equal(versionSeenRecently(logA, buildOf({ git_sha: SHA })), false, "no version_id: never skipped by this rule"); n++;
+const NOW = Date.parse("2026-10-13T20:00:00Z");
+const st = (vid, minsAgo = 60) => ({ statement: { git_sha: SHA, observed_at: new Date(NOW - minsAgo * 60_000).toISOString(), build: { git_sha: SHA, version_id: vid } } });
+const b = (vid) => buildOf({ build: { git_sha: SHA, version_id: vid } });
+assert.equal(FLAP_WINDOW_MS, 15 * 60_000); n++;
+assert.equal(isFlap([st("a", 30), st("b", 5)], b("a"), NOW), true, "A,B,A within 15 min of newest: flap, skip"); n++;
+assert.equal(isFlap([st("a", 60), st("b", 20)], b("a"), NOW), false, "newest is 20 min old: anchor"); n++;
+assert.equal(isFlap([st("c", 90), st("a", 60), st("b", 30), st("d", 5)], b("c"), NOW), false, "rollback to a version 3 statements back: anchor"); n++;
+assert.equal(isFlap([st("a", 60), st("b", 30), st("c", 5)], b("a"), NOW), false, "rollback two back (not the one just before newest): anchor"); n++;
+assert.equal(isFlap([st("b", 5)], b("a"), NOW), false, "one statement only: anchor"); n++;
+assert.equal(isFlap([st("a", 30), st("b", 5)], buildOf({ git_sha: SHA }), NOW), false, "no version_id: never skipped"); n++;
+assert.equal(isFlap([st("a", 30), { statement: { build: { version_id: "b" } } }], b("a"), NOW), false, "newest without observed_at: anchor"); n++;
 console.log(`build-identity: ${n} passed`);

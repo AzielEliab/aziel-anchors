@@ -24,17 +24,18 @@ export function buildChanged(lastStatement, build) {
 }
 
 /**
- * Anti-flap (gradual deploys alternate versions): skip a BUILD-ONLY statement when this version_id
- * already appears in the last RECENT_VERSION_WINDOW statements. Heads changes always anchor.
- * Consequence: during a gradual rollout the newest statement may name the other version, so the
- * runtime's build check can report a mismatch on some isolates until the rollout settles.
+ * Anti-flap, real flaps only (gradual deploys alternating A/B/A). Skip a BUILD-ONLY statement only when
+ * BOTH hold: the version_id equals the build of the statement just before the newest one (A, B, now A
+ * again), AND the newest statement is less than FLAP_WINDOW_MS old. An honest rollback to any older
+ * version, or an A->B->A after the newest statement has aged, is anchored. Heads changes always anchor.
  */
-export const RECENT_VERSION_WINDOW = 5;
-export function versionSeenRecently(log, build, window = RECENT_VERSION_WINDOW) {
+export const FLAP_WINDOW_MS = 15 * 60_000;
+export function isFlap(log, build, now = Date.now()) {
   const vid = build && build.version_id;
-  if (!vid) return false;
-  return (log || []).slice(-window).some((row) => {
-    const b = statementBuild(row && row.statement);
-    return b && b.version_id === vid;
-  });
+  const rows = log || [];
+  if (!vid || rows.length < 2) return false;
+  const before = statementBuild(rows[rows.length - 2] && rows[rows.length - 2].statement);
+  if (!before || before.version_id !== vid) return false;
+  const seen = Date.parse(rows[rows.length - 1].statement && rows[rows.length - 1].statement.observed_at);
+  return Number.isFinite(seen) && now - seen >= 0 && now - seen < FLAP_WINDOW_MS;
 }

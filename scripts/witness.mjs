@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readExternalHeads } from "./external-heads.mjs";
-import { buildOf, buildChanged, versionSeenRecently, RECENT_VERSION_WINDOW } from "./build-identity.mjs";
+import { buildOf, buildChanged, isFlap } from "./build-identity.mjs";
 import { RUNTIME, ZERO, canonicalize, sha256, loadKey, sign, readJsonl, getJson, rekorSubmit } from "./lib.mjs";
 
 const LOG = "anchors/log.jsonl";
@@ -32,9 +32,9 @@ const sameHeads = last && canonicalize(last.statement.heads.chains) === canonica
 // RIB-041: a redeploy (new git_sha / version_id) is anchored even when no head moved.
 const build = buildOf(heads);
 let sameBuild = !buildChanged(last && last.statement, build);
-// Anti-flap: a build-only change to a version_id seen in the last RECENT_VERSION_WINDOW statements is skipped.
-if (sameHeads && !sameBuild && versionSeenRecently(log, build)) {
-  console.log(`build ${build.version_id} seen in the last ${RECENT_VERSION_WINDOW} statements - build-only statement skipped`);
+// Anti-flap (real flaps only): A, B, then A again within 15 min of the newest statement is skipped.
+if (sameHeads && !sameBuild && isFlap(log, build)) {
+  console.log(`build ${build.version_id} flapped back within 15 min of statement ${last.statement.n} - build-only statement skipped`);
   sameBuild = true;
 }
 if (sameHeads && sameBuild && process.env.FORCE !== "1") {
