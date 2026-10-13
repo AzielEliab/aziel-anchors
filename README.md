@@ -14,3 +14,5 @@ Verify a statement yourself: recompute `sha256(canonical JSON of statement)`, ch
 ## External heads (EXTERNAL-HEADS-1.0)
 
 Each new statement also carries `external`: the godlock.uk ledger head (from `https://godlock.uk/verify`) and the Aziel Corpus ACT-RECEIPT tip (from `/v1/receipts`), read directly from those sites, not through the runtime. A head is recorded only when its source verifies it (`status: VERIFIED`, no errors, 64-hex head); otherwise the entry is `{ "anchored": false, "reason": ... }`. An empty corpus chain (all-zero tip) is never anchored. Tests: `node tests/external-heads.test.mjs`.
+
+**Build identity (RIB-041, AZRT-BUILD-WITNESS-1.0).** Each new statement also carries `build { git_sha, version_id }`, copied from the runtime's `/v1/anchor/heads` and signed with the heads. A redeploy (new git_sha or version_id) is anchored even when no head moved. Older statements carry only top-level `git_sha` and verify unchanged. The runtime compares the newest witnessed build with its live build and fails closed on a mismatch. Tests: `node tests/build-identity.test.mjs`.
