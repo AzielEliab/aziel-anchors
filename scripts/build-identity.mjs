@@ -22,3 +22,19 @@ export function buildChanged(lastStatement, build) {
   if (!prev) return Boolean(build && (build.git_sha || build.version_id));
   return prev.git_sha !== build.git_sha || prev.version_id !== build.version_id;
 }
+
+/**
+ * Anti-flap (gradual deploys alternate versions): skip a BUILD-ONLY statement when this version_id
+ * already appears in the last RECENT_VERSION_WINDOW statements. Heads changes always anchor.
+ * Consequence: during a gradual rollout the newest statement may name the other version, so the
+ * runtime's build check can report a mismatch on some isolates until the rollout settles.
+ */
+export const RECENT_VERSION_WINDOW = 5;
+export function versionSeenRecently(log, build, window = RECENT_VERSION_WINDOW) {
+  const vid = build && build.version_id;
+  if (!vid) return false;
+  return (log || []).slice(-window).some((row) => {
+    const b = statementBuild(row && row.statement);
+    return b && b.version_id === vid;
+  });
+}

@@ -1,6 +1,6 @@
 // AZRT-BUILD-WITNESS-1.0 tests: run with `node tests/build-identity.test.mjs`.
 import assert from "node:assert/strict";
-import { buildOf, buildChanged, statementBuild } from "../scripts/build-identity.mjs";
+import { buildOf, buildChanged, statementBuild, versionSeenRecently, RECENT_VERSION_WINDOW } from "../scripts/build-identity.mjs";
 const SHA = "3221bbe47c04873575957d4f6220133e65039111";
 const VID = "38a05023-5835-4ce0-a203-a53fb11382e6";
 let n = 0;
@@ -14,4 +14,12 @@ assert.equal(buildChanged({ git_sha: SHA, build: { git_sha: SHA, version_id: VID
 assert.equal(buildChanged({ git_sha: "a".repeat(40) }, buildOf({ git_sha: SHA })), true); n++;
 assert.equal(buildChanged({ git_sha: SHA }, buildOf({ build: { git_sha: SHA, version_id: VID } })), true, "first statement with version_id"); n++;
 assert.equal(buildChanged(null, buildOf({ git_sha: SHA })), true); n++;
+const st = (vid) => ({ statement: { git_sha: SHA, build: { git_sha: SHA, version_id: vid } } });
+const logA = [st("a"), st("b"), st("a"), st("b")];
+assert.equal(RECENT_VERSION_WINDOW, 5); n++;
+assert.equal(versionSeenRecently(logA, buildOf({ build: { git_sha: SHA, version_id: "a" } })), true, "alternating rollout: skip"); n++;
+assert.equal(versionSeenRecently(logA, buildOf({ build: { git_sha: SHA, version_id: "c" } })), false, "new version: anchor"); n++;
+const old = [st("old"), st("x"), st("x"), st("x"), st("x"), st("x")];
+assert.equal(versionSeenRecently(old, buildOf({ build: { git_sha: SHA, version_id: "old" } })), false, "outside the window: anchor"); n++;
+assert.equal(versionSeenRecently(logA, buildOf({ git_sha: SHA })), false, "no version_id: never skipped by this rule"); n++;
 console.log(`build-identity: ${n} passed`);
