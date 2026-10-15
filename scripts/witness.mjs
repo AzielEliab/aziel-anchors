@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readExternalHeads } from "./external-heads.mjs";
+import { buildOf, buildChanged, isFlap } from "./build-identity.mjs";
 import { RUNTIME, ZERO, canonicalize, sha256, loadKey, sign, readJsonl, getJson, rekorSubmit } from "./lib.mjs";
 
 const LOG = "anchors/log.jsonl";
@@ -28,8 +29,16 @@ for (const name of ["aznews", "4dmap"]) {
 const external = await readExternalHeads();
 const sameHeads = last && canonicalize(last.statement.heads.chains) === canonicalize(heads.chains) && canonicalize(last.statement.heads.stores) === canonicalize(heads.stores) &&
   canonicalize(headsOnly(last.statement.external)) === canonicalize(headsOnly(external));
-if (sameHeads && process.env.FORCE !== "1") {
-  console.log("heads unchanged since statement", last.statement.n, "- nothing to anchor");
+// RIB-041: a redeploy (new git_sha / version_id) is anchored even when no head moved.
+const build = buildOf(heads);
+let sameBuild = !buildChanged(last && last.statement, build);
+// Anti-flap (real flaps only): A, B, then A again within 15 min of the newest statement is skipped.
+if (sameHeads && !sameBuild && isFlap(log, build)) {
+  console.log(`build ${build.version_id} flapped back within 15 min of statement ${last.statement.n} - build-only statement skipped`);
+  sameBuild = true;
+}
+if (sameHeads && sameBuild && process.env.FORCE !== "1") {
+  console.log("heads and build unchanged since statement", last.statement.n, "- nothing to anchor");
   process.exit(0);
 }
 const statement = {
@@ -41,6 +50,8 @@ const statement = {
   // Additive (AZRT-ANCHOR-1.0 key-epoch update): the runtime's live GIT_SHA at the top level.
   // Statements before this field verify unchanged (canonical JSON of what was signed).
   git_sha: heads.git_sha || null,
+  // Additive (RIB-041 AZRT-BUILD-WITNESS-1.0): deploy version_id + git_sha, signed with the heads.
+  build,
   heads: { chains: heads.chains, stores: heads.stores, version: heads.version, git_sha: heads.git_sha, at: heads.at },
   independent,
   external,
