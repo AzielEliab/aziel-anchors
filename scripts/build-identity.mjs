@@ -39,3 +39,16 @@ export function isFlap(log, build, now = Date.now()) {
   const seen = Date.parse(rows[rows.length - 1].statement && rows[rows.length - 1].statement.observed_at);
   return Number.isFinite(seen) && now - seen >= 0 && now - seen < FLAP_WINDOW_MS;
 }
+
+/**
+ * Where buildOf() took the build from, for the run log only (not signed into the statement).
+ * Statements 24-34 carry version_id null because the runtime then live (cbb3509) predates aziel-runtime
+ * #286 and published no `build` object in /v1/anchor/heads; buildOf() fell back to top-level git_sha.
+ */
+export function buildSource(heads) {
+  const b = heads && typeof heads.build === "object" && heads.build ? heads.build : null;
+  if (b && clean(b.version_id)) return { from: "heads.build", version_id_published: true };
+  if (b) return { from: "heads.build", version_id_published: false, reason: "runtime heads carry build but version_id is null (CF_VERSION_METADATA unbound and VERSION_ID unset)" };
+  if (heads && heads.git_sha) return { from: "heads.git_sha", version_id_published: false, reason: "runtime heads publish no build object (runtime predates aziel-runtime #286); version_id left null, never guessed" };
+  return { from: "none", version_id_published: false, reason: "runtime heads carry no build identity" };
+}
