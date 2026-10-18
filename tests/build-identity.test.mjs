@@ -1,6 +1,6 @@
 // AZRT-BUILD-WITNESS-1.0 tests: run with `node tests/build-identity.test.mjs`.
 import assert from "node:assert/strict";
-import { buildOf, buildChanged, statementBuild, isFlap, FLAP_WINDOW_MS } from "../scripts/build-identity.mjs";
+import { buildOf, buildChanged, buildSource, statementBuild, isFlap, FLAP_WINDOW_MS } from "../scripts/build-identity.mjs";
 const SHA = "3221bbe47c04873575957d4f6220133e65039111";
 const VID = "38a05023-5835-4ce0-a203-a53fb11382e6";
 let n = 0;
@@ -25,4 +25,18 @@ assert.equal(isFlap([st("a", 60), st("b", 30), st("c", 5)], b("a"), NOW), false,
 assert.equal(isFlap([st("b", 5)], b("a"), NOW), false, "one statement only: anchor"); n++;
 assert.equal(isFlap([st("a", 30), st("b", 5)], buildOf({ git_sha: SHA }), NOW), false, "no version_id: never skipped"); n++;
 assert.equal(isFlap([st("a", 30), { statement: { build: { version_id: "b" } } }], b("a"), NOW), false, "newest without observed_at: anchor"); n++;
+// version_id null (statements 24-34): the runtime then live published no build object. Live 22ba95e does.
+{
+  const pre286 = { git_sha: "cbb350992c4ab7b9f204c92b409d144a42c31545", version: "2.0.0-rc1", chains: [] };
+  assert.deepEqual(buildOf(pre286), { spec: "AZRT-BUILD-WITNESS-1.0", git_sha: pre286.git_sha, version_id: null });
+  assert.equal(buildSource(pre286).from, "heads.git_sha"); assert.match(buildSource(pre286).reason, /#286/); n++;
+  const live = { git_sha: "22ba95e126410302ed85ebbdaaa314264de63f0a", build: { spec: "AZRT-BUILD-WITNESS-1.0", git_sha: "22ba95e126410302ed85ebbdaaa314264de63f0a", version_id: "f50445ee-0fc3-42d8-9bfe-3cace58ab715" }, chains: [] };
+  assert.equal(buildOf(live).version_id, "f50445ee-0fc3-42d8-9bfe-3cace58ab715");
+  assert.deepEqual(buildSource(live), { from: "heads.build", version_id_published: true });
+  // The first statement after the 22ba95e deploy is anchored even if no head moved (build changed vs n=34).
+  const n34 = { git_sha: pre286.git_sha, build: { spec: "AZRT-BUILD-WITNESS-1.0", git_sha: pre286.git_sha, version_id: null } };
+  assert.equal(buildChanged(n34, buildOf(live)), true); n++;
+  assert.equal(buildSource({ build: { git_sha: SHA, version_id: null } }).version_id_published, false);
+  assert.equal(buildSource(null).from, "none"); n++;
+}
 console.log(`build-identity: ${n} passed`);
