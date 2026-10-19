@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readExternalHeads } from "./external-heads.mjs";
 import { buildOf, buildChanged, buildSource, isFlap } from "./build-identity.mjs";
+import { receiptKeyAlert, lastRecordedKey } from "./receipt-key-guard.mjs";
 import { RUNTIME, ZERO, canonicalize, sha256, loadKey, sign, readJsonl, getJson, rekorSubmit } from "./lib.mjs";
 
 const LOG = "anchors/log.jsonl";
@@ -24,6 +25,13 @@ for (const name of ["aznews", "4dmap"]) {
   } catch (err) {
     independent[name] = { error: String(err.message).slice(0, 120) };
   }
+}
+// AZRT-KEYS-1.0: fail closed (no statement, failed run = alert) when the receipt key changed without the old
+// key being retired, or was dropped. Compared against the newest key recorded in the log, not only the last row.
+const keyAlert = receiptKeyAlert(lastRecordedKey(log), heads.receipt_key ?? null);
+if (keyAlert) {
+  console.error(`::error::${keyAlert.code}: receipt key ${keyAlert.from} -> ${keyAlert.to}`);
+  throw new Error(keyAlert.code);
 }
 // EXTERNAL-HEADS-1.0: godlock.uk ledger head and corpus receipt tip, read from their own endpoints.
 const external = await readExternalHeads();
