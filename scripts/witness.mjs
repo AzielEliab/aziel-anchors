@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readExternalHeads } from "./external-heads.mjs";
 import { buildOf, buildChanged, buildSource, isFlap } from "./build-identity.mjs";
+import { receiptKeyAlert, lastRecordedKey } from "./receipt-key-guard.mjs";
 import { RUNTIME, ZERO, canonicalize, sha256, loadKey, sign, readJsonl, getJson, rekorSubmit } from "./lib.mjs";
 
 const LOG = "anchors/log.jsonl";
@@ -25,10 +26,19 @@ for (const name of ["aznews", "4dmap"]) {
     independent[name] = { error: String(err.message).slice(0, 120) };
   }
 }
+// AZRT-KEYS-1.0: fail closed (no statement, failed run = alert) when the receipt key changed without the old
+// key being retired, or was dropped. Compared against the newest key recorded in the log, not only the last row.
+const keyAlert = receiptKeyAlert(lastRecordedKey(log), heads.receipt_key ?? null);
+if (keyAlert) {
+  console.error(`::error::${keyAlert.code}: receipt key ${keyAlert.from} -> ${keyAlert.to}`);
+  throw new Error(keyAlert.code);
+}
 // EXTERNAL-HEADS-1.0: godlock.uk ledger head and corpus receipt tip, read from their own endpoints.
 const external = await readExternalHeads();
 const sameHeads = last && canonicalize(last.statement.heads.chains) === canonicalize(heads.chains) && canonicalize(last.statement.heads.stores) === canonicalize(heads.stores) &&
-  canonicalize(headsOnly(last.statement.external)) === canonicalize(headsOnly(external));
+  canonicalize(headsOnly(last.statement.external)) === canonicalize(headsOnly(external)) &&
+  // AZRT-KEYS-1.0: a receipt key change (new epoch) is anchored even when no head moved.
+  canonicalize(last.statement.receipt_key ?? null) === canonicalize(heads.receipt_key ?? null);
 // RIB-041: a redeploy (new git_sha / version_id) is anchored even when no head moved.
 const build = buildOf(heads);
 const src = buildSource(heads);
@@ -55,6 +65,9 @@ const statement = {
   // Additive (RIB-041 AZRT-BUILD-WITNESS-1.0): deploy version_id + git_sha, signed with the heads.
   build,
   heads: { chains: heads.chains, stores: heads.stores, version: heads.version, git_sha: heads.git_sha, at: heads.at },
+  // Additive (AZRT-KEYS-1.0): the runtime's held receipt key (public parts) or null, so each receipt key
+  // epoch is recorded in this signed log. Statements before this field verify unchanged.
+  receipt_key: heads.receipt_key ?? null,
   independent,
   external,
   witness: { repo: "AzielEliab/aziel-anchors", run_id: process.env.GITHUB_RUN_ID || null, key: "keys/witness.pub" },
