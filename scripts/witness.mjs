@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readExternalHeads } from "./external-heads.mjs";
 import { buildOf, buildChanged, buildSource, isFlap } from "./build-identity.mjs";
+import { assessBuildProvenance, loadCiAttestation, provenanceWarrantsAnchor, withProvenance } from "./build-provenance.mjs";
 import { receiptKeyAlert, lastRecordedKey } from "./receipt-key-guard.mjs";
 import { RUNTIME, ZERO, canonicalize, sha256, loadKey, sign, readJsonl, getJson, rekorSubmit } from "./lib.mjs";
 
@@ -40,16 +41,23 @@ const sameHeads = last && canonicalize(last.statement.heads.chains) === canonica
   // AZRT-KEYS-1.0: a receipt key change (new epoch) is anchored even when no head moved.
   canonicalize(last.statement.receipt_key ?? null) === canonicalize(heads.receipt_key ?? null);
 // RIB-041: a redeploy (new git_sha / version_id) is anchored even when no head moved.
-const build = buildOf(heads);
+// The self-report is marked self_consistent. CI provenance (and Cloudflare, only when
+// CLOUDFLARE_READONLY_TOKEN is set) is recorded beside it and is not labeled verified.
+const reported = buildOf(heads);
+const attestation = await loadCiAttestation(process.env);
+const assessed = await assessBuildProvenance(heads, { attestation, env: process.env });
+const build = withProvenance(reported, assessed);
 const src = buildSource(heads);
 if (!src.version_id_published) console.log(`warning: version_id null in this statement: ${src.reason}`);
+console.log(`build assurance git_sha=${build.assurance.git_sha} version_id=${build.assurance.version_id} ci=${build.provenance.ci.status} cloudflare=${build.provenance.cloudflare.status}`);
 let sameBuild = !buildChanged(last && last.statement, build);
 // Anti-flap (real flaps only): A, B, then A again within 15 min of the newest statement is skipped.
 if (sameHeads && !sameBuild && isFlap(log, build)) {
   console.log(`build ${build.version_id} flapped back within 15 min of statement ${last.statement.n} - build-only statement skipped`);
   sameBuild = true;
 }
-if (sameHeads && sameBuild && process.env.FORCE !== "1") {
+const provenanceNews = provenanceWarrantsAnchor(last && last.statement, build);
+if (sameHeads && sameBuild && !provenanceNews && process.env.FORCE !== "1") {
   console.log("heads and build unchanged since statement", last.statement.n, "- nothing to anchor");
   process.exit(0);
 }
@@ -62,7 +70,10 @@ const statement = {
   // Additive (AZRT-ANCHOR-1.0 key-epoch update): the runtime's live GIT_SHA at the top level.
   // Statements before this field verify unchanged (canonical JSON of what was signed).
   git_sha: heads.git_sha || null,
-  // Additive (RIB-041 AZRT-BUILD-WITNESS-1.0): deploy version_id + git_sha, signed with the heads.
+  // Additive (RIB-041 AZRT-BUILD-WITNESS-1.0): self-reported version_id + git_sha, signed with
+  // the heads. assurance is self_consistent / inconsistent / absent, never verified.
+  // provenance is the CI (and optional Cloudflare) comparison. Older statements omit both
+  // and verify unchanged. This file is append-only; earlier log lines are not rewritten.
   build,
   heads: { chains: heads.chains, stores: heads.stores, version: heads.version, git_sha: heads.git_sha, at: heads.at },
   // Additive (AZRT-KEYS-1.0): the runtime's held receipt key (public parts) or null, so each receipt key
