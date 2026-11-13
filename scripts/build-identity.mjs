@@ -1,12 +1,36 @@
 // AZRT-BUILD-WITNESS-1.0 (RIB-041, @TheNabeelKhan): the runtime build identity the witness signs
 // next to the chain heads. Read from GET /v1/anchor/heads; null fields stay null (never guessed).
+// git_sha and version_id are the runtime's own report. assurance marks that copy self_consistent
+// (or inconsistent / absent). It is not "verified"; an independent CI or Cloudflare result lives
+// on build.provenance (scripts/build-provenance.mjs). Older statements have no assurance field.
 const SHA = /^[a-f0-9]{7,40}$/;
 const clean = (v) => (v == null || v === "" ? null : String(v).trim().toLowerCase() || null);
+
+function gitAssurance(heads, git_sha) {
+  if (!git_sha) return "absent";
+  const b = heads && typeof heads.build === "object" && heads.build ? heads.build : null;
+  const top = clean(heads && heads.git_sha);
+  const inner = clean(b && b.git_sha);
+  const topOk = top && SHA.test(top) ? top : null;
+  const innerOk = inner && SHA.test(inner) ? inner : null;
+  if (topOk && innerOk && topOk !== innerOk) return "inconsistent";
+  return "self_consistent";
+}
 
 export function buildOf(heads) {
   const b = heads && typeof heads.build === "object" && heads.build ? heads.build : {};
   const sha = clean(b.git_sha ?? (heads && heads.git_sha));
-  return { spec: "AZRT-BUILD-WITNESS-1.0", git_sha: sha && SHA.test(sha) ? sha : null, version_id: clean(b.version_id) };
+  const git_sha = sha && SHA.test(sha) ? sha : null;
+  const version_id = clean(b.version_id);
+  return {
+    spec: "AZRT-BUILD-WITNESS-1.0",
+    git_sha,
+    version_id,
+    assurance: {
+      git_sha: gitAssurance(heads, git_sha),
+      version_id: version_id ? "self_consistent" : "absent",
+    },
+  };
 }
 
 /** Build the previous statement witnessed (statements before this field: top-level git_sha only). */
