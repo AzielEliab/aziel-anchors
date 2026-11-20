@@ -1,0 +1,5 @@
+{
+  "spec": "AZRT-OPERATOR-ROOT-1.0",
+  "public_key": null,
+  "note": "Pinned Ed25519 operator root public key (raw, base64url, 32 bytes). null refuses every witness-key rotation. Public key only; never a private key or a secret."
+}
