@@ -1,9 +1,11 @@
 name: rotate-keys
-# One-shot key rotation (AZRT-ANCHOR-1.0 key epochs). Generates fresh Ed25519 keys INSIDE this
-# runner. The private halves are sealed (libsodium sealed box) to this repo's GitHub Actions
-# secrets public key, so the only thing that leaves the runner is ciphertext only GitHub can open,
-# plus the public keys. The operator then stores the ciphertext with the secrets API (PUT
-# encrypted_value); no machine outside GitHub ever holds a private key in the clear.
+# One-shot key rotation (AZRT-ANCHOR-1.0 key epochs). A witness-key rotation is accepted only
+# when the OLD witness key and the operator root key have both signed it. The root public key
+# is keys/operator-root.json. While that pin is null, this job refuses before it mints keys.
+# No secret is added here. The private halves are sealed (libsodium sealed box) to this repo's
+# GitHub Actions secrets public key, so the only thing that leaves the runner is ciphertext
+# only GitHub can open, plus the public keys. A generated witness public key that is not the
+# signed to_public_key is deleted and the job fails. Cap-7 is not ICANN. Paid satellite stays HELD.
 on:
   workflow_dispatch:
     inputs:
@@ -13,12 +15,24 @@ on:
       repo_public_key:
         description: "key (base64) from the same endpoint"
         required: true
+      rotation_authorization:
+        description: "AZRT-WITNESS-ROTATION-1.0 JSON signed by the old witness key and the operator root"
+        required: false
+        default: ""
 permissions:
   contents: read
 jobs:
   rotate:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Refuse unless the old witness key and the pinned operator root both signed this rotation
+        env:
+          ROTATION_AUTHORIZATION: ${{ github.event.inputs.rotation_authorization }}
+        run: node scripts/witness-rotation.mjs
       - run: pip install --quiet pynacl==1.5.0 cryptography
       - name: Generate witness + auditor keys and seal private halves to the repo secrets key
         env:
@@ -45,6 +59,10 @@ jobs:
           open("rotation.json", "w").write(json.dumps(out, indent=1))
           for n, v in out["keys"].items(): print(n, "public", v["public_key"], "sha256", v["public_key_sha256"])
           PY
+      - name: Refuse a generated witness key the rotation did not name
+        env:
+          ROTATION_AUTHORIZATION: ${{ github.event.inputs.rotation_authorization }}
+        run: node scripts/witness-rotation.mjs --expect-generated rotation.json
       - uses: actions/upload-artifact@v4
         with:
           name: rotation
